@@ -1,5 +1,79 @@
 @import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque";
+@import "@fontsource-variable/newsreader";
 
-body {
-  @apply bg-neutral-950 text-neutral-100 antialiased;
+@theme {
+  --font-sans: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Newsreader Variable", Georgia, "Times New Roman", serif;
+
+  --color-paper: #e8edf1;
+  --color-panel: #f7f9fb;
+  --color-ink: #0f1b2a;
+  --color-mute: #5b6b7c;
+  --color-line: #cfd8e0;
+  --color-cobalt: #2744f5;
+  --color-cobalt-soft: #93a5ff;
+  --color-signal: #ff9f0a;
+  --color-mark: #ffe58a;
+  --color-ok: #12805c;
+  --color-fail: #c93c37;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-cobalt);
+    outline-offset: 2px;
+  }
+  .on-dark :focus-visible {
+    outline-color: #fff;
+  }
+  mark {
+    background: var(--color-mark);
+    color: inherit;
+    border-radius: 3px;
+    padding: 0 1px;
+  }
+}
+
+@keyframes bar-rise {
+  from {
+    transform: scaleY(0.05);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.wave-bar {
+  transform-origin: bottom;
+  animation: bar-rise 520ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  animation-delay: calc(var(--i) * 3ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

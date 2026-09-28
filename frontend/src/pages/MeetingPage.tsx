@@ -1,121 +1,129 @@
-import { useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useMemo } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
-import { getMeeting, getTranscript } from "../api";
-import ProcessingChecklist from "../components/ProcessingChecklist";
-import StatusBadge from "../components/StatusBadge";
+import { deleteMeeting, getMeeting, getTranscript } from "../api";
+import type { Segment } from "../api";
+import PlayerConsole from "../components/PlayerConsole";
+import ProcessingPanel from "../components/ProcessingPanel";
+import StatusPill from "../components/StatusPill";
+import Transcript from "../components/Transcript";
+import { useMediaController } from "../hooks/useMediaController";
 import { useMeetingSocket } from "../hooks/useMeetingSocket";
-import { formatTime, isTerminal, isVideo } from "../utils";
+import {
+  findActiveIndex,
+  formatDate,
+  formatDuration,
+  isTerminal,
+  isVideo,
+  languageName,
+  speechLevels,
+} from "../utils";
+
+const NO_SEGMENTS: Segment[] = [];
 
 export default function MeetingPage() {
   const { id = "" } = useParams();
-  const mediaRef = useRef<HTMLMediaElement | null>(null);
-  const [currentTime, setCurrentTime] = useState(0);
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const media = useMediaController();
 
   const { data: meeting, isLoading, error } = useQuery({
     queryKey: ["meeting", id],
     queryFn: () => getMeeting(id),
-    refetchInterval: (q) => (isTerminal(q.state.data?.status) ? false : 5000), // safety net
+    refetchInterval: (q) => (isTerminal(q.state.data?.status) ? false : 5000), // safety net behind the WebSocket
   });
 
   const processing = !!meeting && !isTerminal(meeting.status);
   useMeetingSocket(id, processing);
 
-  const { data: segments = [] } = useQuery({
+  const { data } = useQuery({
     queryKey: ["transcript", id],
     queryFn: () => getTranscript(id),
     enabled: meeting?.status === "completed",
   });
+  const segments = data ?? NO_SEGMENTS;
 
-  function seek(seconds: number) {
-    const el = mediaRef.current;
-    if (!el) return;
-    el.currentTime = seconds;
-    void el.play();
+  const remove = useMutation({
+    mutationFn: () => deleteMeeting(id),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["meetings"] });
+      navigate("/");
+    },
+  });
+
+  const duration = meeting?.duration ?? segments[segments.length - 1]?.end_time ?? 0;
+  const getLevels = useCallback((bars: number) => speechLevels(segments, duration, bars), [segments, duration]);
+  const activeIdx = useMemo(() => findActiveIndex(segments, media.time), [segments, media.time]);
+
+  if (isLoading) return <p className="text-mute">Loading meeting</p>;
+  if (error || !meeting) {
+    return (
+      <p className="text-mute">
+        We couldn't find that meeting. <Link to="/" className="text-cobalt underline">Go back to your meetings</Link>.
+      </p>
+    );
   }
 
-  if (isLoading) return <p className="text-neutral-400">Loading…</p>;
-  if (error || !meeting) return <p className="text-red-300">Meeting not found.</p>;
-
-  const activeIdx = segments.findIndex((s) => currentTime >= s.start_time && currentTime < s.end_time);
-  const mediaUrl = `/api/meetings/${meeting.id}/media`;
+  const lang = languageName(meeting.language);
 
   return (
-    <div className="space-y-6">
-      <Link to="/" className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-white">
-        <ArrowLeft className="h-4 w-4" /> All meetings
-      </Link>
+    <div className="space-y-8">
+      <div>
+        <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-mute hover:text-ink">
+          <ArrowLeft className="h-4 w-4" /> Meetings
+        </Link>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">{meeting.title}</h1>
-          <p className="mt-1 text-sm text-neutral-400">
-            {new Date(meeting.created_at).toLocaleString()}
-            {meeting.duration ? ` · ${formatTime(meeting.duration)}` : ""}
-            {meeting.language ? ` · ${meeting.language.toUpperCase()}` : ""}
-          </p>
+        <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="break-words text-4xl font-semibold tracking-tight md:text-5xl">{meeting.title}</h1>
+            <p className="mt-3 flex flex-wrap gap-x-4 text-mute">
+              <span>{formatDate(meeting.created_at)}</span>
+              {meeting.duration ? <span>{formatDuration(meeting.duration)}</span> : null}
+              {lang ? <span>{lang}</span> : null}
+            </p>
+          </div>
+          <StatusPill meeting={meeting} />
         </div>
-        <StatusBadge meeting={meeting} />
       </div>
 
       {meeting.status === "failed" && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-5 text-sm">
-          <p className="font-medium text-red-200">Processing failed</p>
-          <p className="mt-1 break-words text-red-300/80">{meeting.error ?? "Unknown error"}</p>
+        <div className="rounded-3xl border border-fail/30 bg-fail/5 p-6">
+          <p className="text-lg font-semibold text-fail">Processing failed</p>
+          <p className="mt-2 break-words text-sm">{meeting.error ?? "No error details were recorded."}</p>
+          <p className="mt-2 text-sm text-mute">
+            The worker terminal has the full traceback. Fix the cause, then delete this meeting and upload the file
+            again.
+          </p>
+          <button
+            onClick={() => remove.mutate()}
+            className="mt-4 rounded-full border border-fail/40 px-5 py-2 text-sm font-medium text-fail hover:bg-fail/10"
+          >
+            Delete meeting
+          </button>
         </div>
       )}
 
-      {processing && <ProcessingChecklist meeting={meeting} />}
+      {processing && <ProcessingPanel meeting={meeting} />}
 
       {meeting.status === "completed" && (
         <>
-          {isVideo(meeting.filename) ? (
-            <video
-              ref={(el) => {
-                mediaRef.current = el;
-              }}
-              src={mediaUrl}
-              controls
-              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-              className="max-h-96 w-full rounded-xl bg-black"
+          <div className="sticky top-3 z-20">
+            <PlayerConsole
+              src={`/api/meetings/${meeting.id}/media`}
+              video={isVideo(meeting.filename)}
+              duration={duration}
+              getLevels={getLevels}
+              media={media}
             />
-          ) : (
-            <audio
-              ref={(el) => {
-                mediaRef.current = el;
-              }}
-              src={mediaUrl}
-              controls
-              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-              className="w-full"
-            />
-          )}
+          </div>
 
-          <section>
-            <h2 className="mb-3 text-lg font-semibold">Transcript</h2>
-            {segments.length === 0 ? (
-              <p className="text-neutral-400">No speech detected in this recording.</p>
-            ) : (
-              <ul className="divide-y divide-neutral-800 rounded-xl border border-neutral-800 bg-neutral-900">
-                {segments.map((s, i) => (
-                  <li key={s.idx}>
-                    <button
-                      onClick={() => seek(s.start_time)}
-                      className={`flex w-full gap-4 px-5 py-3 text-left text-sm hover:bg-neutral-800 ${
-                        i === activeIdx ? "bg-sky-500/10" : ""
-                      }`}
-                    >
-                      <span className="w-14 shrink-0 font-mono text-xs text-sky-400">
-                        {formatTime(s.start_time)}
-                      </span>
-                      <span className={i === activeIdx ? "text-white" : "text-neutral-300"}>{s.text}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          <Transcript
+            segments={segments}
+            activeIdx={activeIdx}
+            playing={media.playing}
+            onSeek={(t) => media.seek(t, true)}
+          />
         </>
       )}
     </div>

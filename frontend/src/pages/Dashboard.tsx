@@ -2,9 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import { deleteMeeting, listMeetings } from "../api";
-import StatusBadge from "../components/StatusBadge";
-import UploadZone from "../components/UploadZone";
-import { formatTime, isTerminal } from "../utils";
+import StatusPill from "../components/StatusPill";
+import UploadBay from "../components/UploadBay";
+import { formatDate, formatDuration, isTerminal, languageName } from "../utils";
 
 export default function Dashboard() {
   const qc = useQueryClient();
@@ -21,47 +21,75 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="space-y-10">
-      <UploadZone />
+    <div className="space-y-14">
+      <UploadBay />
 
       <section>
-        <h2 className="mb-4 text-xl font-semibold">Meetings</h2>
+        <h2 className="mb-5 text-2xl font-semibold tracking-tight">Meetings</h2>
 
-        {isLoading && <p className="text-neutral-400">Loading…</p>}
-        {error && <p className="text-red-300">Could not reach the API. Is the backend running?</p>}
+        {isLoading && <p className="text-mute">Loading your meetings</p>}
+
+        {error && (
+          <p className="rounded-2xl border border-fail/30 bg-fail/5 px-5 py-4 text-fail">
+            The API isn't responding. Start the backend on port 8000 and refresh this page.
+          </p>
+        )}
+
         {!isLoading && !error && meetings.length === 0 && (
-          <p className="text-neutral-400">No meetings yet. Upload your first recording above.</p>
+          <div className="rounded-3xl border border-dashed border-line px-6 py-12 text-center">
+            <p className="text-lg font-medium">No meetings yet</p>
+            <p className="mt-1 text-mute">
+              Drop a recording above. Transcription runs in the background, so you can close the tab.
+            </p>
+          </div>
         )}
 
         <ul className="space-y-3">
-          {meetings.map((m) => (
-            <li key={m.id} className="flex items-center gap-2">
-              <Link
-                to={`/meetings/${m.id}`}
-                className="flex flex-1 items-center justify-between rounded-xl border border-neutral-800 bg-neutral-900 px-5 py-4 hover:border-neutral-600"
-              >
-                <div>
-                  <p className="font-medium">{m.title}</p>
-                  <p className="mt-0.5 text-xs text-neutral-400">
-                    {new Date(m.created_at).toLocaleString()}
-                    {m.duration ? ` · ${formatTime(m.duration)}` : ""}
-                  </p>
-                </div>
-                <StatusBadge meeting={m} />
-              </Link>
-              <button
-                title="Delete meeting"
-                onClick={() => {
-                  if (confirm(`Delete "${m.title}"? This removes the recording and transcript.`)) {
-                    remove.mutate(m.id);
-                  }
-                }}
-                className="rounded-lg p-3 text-neutral-500 hover:bg-neutral-800 hover:text-red-300"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </li>
-          ))}
+          {meetings.map((m) => {
+            const busy = !isTerminal(m.status);
+            const lang = languageName(m.language);
+            return (
+              <li key={m.id} className="group flex items-center gap-2">
+                <Link
+                  to={`/meetings/${m.id}`}
+                  className="block min-w-0 flex-1 rounded-2xl border border-line bg-panel px-5 py-4 transition-colors hover:bg-white"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="truncate text-lg font-medium">{m.title}</p>
+                      <p className="mt-1 flex flex-wrap gap-x-4 text-sm text-mute">
+                        <span>{formatDate(m.created_at)}</span>
+                        {m.duration ? <span>{formatDuration(m.duration)}</span> : null}
+                        {lang ? <span>{lang}</span> : null}
+                      </p>
+                    </div>
+                    <StatusPill meeting={m} />
+                  </div>
+                  {busy && (
+                    <div className="mt-3 h-1 overflow-hidden rounded-full bg-ink/10">
+                      <div
+                        className="h-full rounded-full bg-cobalt transition-all duration-500"
+                        style={{ width: `${m.progress}%` }}
+                      />
+                    </div>
+                  )}
+                </Link>
+
+                <button
+                  aria-label={`Delete ${m.title}`}
+                  title="Delete meeting"
+                  onClick={() => {
+                    if (confirm(`Delete "${m.title}"? The recording and its transcript will be removed.`)) {
+                      remove.mutate(m.id);
+                    }
+                  }}
+                  className="rounded-full p-3 text-mute hover:bg-white hover:text-fail md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </li>
+            );
+          })}
         </ul>
       </section>
     </div>
